@@ -413,6 +413,15 @@ open(SETTINGS, "w").write('<?xml version="1.0"?>\n<PROPERTIES>\n  <VALUE name="r
 ws.send({"t": "project"})
 pr = ws.wait(lambda m: m["t"] == "project")
 assert pr["path"] == XPJ and pr["name"] == "Jam 1" and pr["key"] == "F# Minor" and pr["version"] == 28, pr
+# MPC rewrites its settings late: a project saved since then (a newer .xpj in the same folder) is the one in use
+NEWER = os.path.join(os.path.dirname(XPJ), "Newer.xpj")
+open(NEWER, "wb").write(open(XPJ, "rb").read())
+os.utime(NEWER, (os.stat(XPJ).st_mtime + 100, os.stat(XPJ).st_mtime + 100))
+ws.send({"t": "project"})
+assert ws.wait(lambda m: m["t"] == "project")["path"] == NEWER
+os.remove(NEWER)
+ws.send({"t": "project"})
+assert ws.wait(lambda m: m["t"] == "project")["path"] == XPJ
 assert pr["tempo"] == 93.5 and pr["master_tempo"] == 128 and not pr["master_tempo_enabled"] and pr["current_track"] == 1, pr
 assert pr["sequence"] == {"index": 1, "name": "Verse", "tempo": 93.5, "tempo_enabled": True, "bars": 8, "loop": True,
                           "loop_start": 4, "loop_end": 8, "beats_per_bar": 3, "beat_length": 960}, pr["sequence"]

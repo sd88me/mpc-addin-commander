@@ -71,7 +71,7 @@ real-time commands. For the app to follow MPC, enable the port as a MIDI output 
             "vendor": "AIR Music Technology", "preset": "Plate", "state": "412.ABCD..."}]}
 ```
 
-The file is the most recent project in MPC's settings (`recentProject1` in `settings=`), or `project=` when set. It
+The file is the newest-saved `.xpj` among the recent projects in MPC's settings (`recentProject1..9` in `settings=`) and the folders they are in, because MPC rewrites that settings file only now and then and `recentProject1` can be a project closed long ago; or `project=` when set. It
 is what MPC last saved or loaded, not the live state: the app shows it as the project and refreshes it on request.
 `tempo` is the master tempo when that is enabled, else the current sequence's. `kind` is the program type number
 in the file; `type` names the ones seen so far (`drum` 0, `plugin` 3, `audio` 6, `return` 7, `submix` 8, `output` 9,

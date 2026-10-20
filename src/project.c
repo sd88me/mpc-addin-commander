@@ -4,7 +4,9 @@
 #include "project.h"
 #include <ctype.h>
 #include "addin.h"
+#include <dirent.h>
 #include <dlfcn.h>
+#include <stdio.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,28 +62,75 @@ static void xml_unescape(char *s)
     *w = 0;
 }
 
-// recentProject1 from MPC's settings. 0 when found.
+// Keep path in out when it is a .xpj newer than the one already there (best is its mtime, 0 for none).
+static void newest_candidate(const char *path, char *out, size_t n, long long *best)
+{
+    struct stat st;
+    size_t l = strlen(path);
+    if (l < 5 || strcmp(path + l - 4, ".xpj") || l >= n || stat(path, &st) || (long long)st.st_mtime <= *best) return;
+    memcpy(out, path, l + 1);
+    *best = (long long)st.st_mtime;
+}
+
+// The folder part of path in out (512 bytes at most), "" when there is none.
+static void dir_of(const char *path, char *out, size_t n)
+{
+    const char *sl = strrchr(path, '/');
+    size_t l = sl ? (size_t)(sl - path) : 0;
+    if (l >= n) l = 0;
+    memcpy(out, path, l);
+    out[l] = 0;
+}
+
+// The project MPC saved last. MPC rewrites its settings file only now and then, so recentProject1 can name a project
+// that was closed long ago; a save always touches the file, so the newest .xpj among the recent projects and the folders
+// they live in is the one in use. Falls back to recentProject1 when none of them can be read. 0 when found.
 static int recent_project(char *out, size_t n)
 {
     FILE *f = fopen(C.settings, "re");
     if (!f) return -1;
-    char line[1024];
-    int found = -1;
-    while (found && fgets(line, sizeof line, f)) {
-        char *p = strstr(line, "name=\"recentProject1\"");
+    char line[1024], paths[9][512], first[512] = "";
+    int np = 0;
+    while (fgets(line, sizeof line, f)) {
+        char *p = strstr(line, "name=\"recentProject");
         if (!p) continue;
         p = strstr(p, "val=\"");
         if (!p) continue;
         p += 5;
         char *e = strchr(p, '"');
-        if (!e || (size_t)(e - p) >= n) continue;
-        memcpy(out, p, (size_t)(e - p));
-        out[e - p] = 0;
-        xml_unescape(out);
-        found = 0;
+        if (!e || (size_t)(e - p) >= sizeof paths[0] || np >= 9) continue;
+        memcpy(paths[np], p, (size_t)(e - p));
+        paths[np][e - p] = 0;
+        xml_unescape(paths[np]);
+        if (!strstr(line, "recentProject1\"") || first[0]) { np++; continue; }
+        snprintf(first, sizeof first, "%s", paths[np]);
+        np++;
     }
     fclose(f);
-    return found;
+    char best_path[512] = "";
+    long long best = 0;
+    for (int i = 0; i < np; i++) {
+        newest_candidate(paths[i], best_path, sizeof best_path, &best);
+        char dir[512];
+        dir_of(paths[i], dir, sizeof dir);
+        if (!dir[0]) continue;
+        int seen = 0;
+        for (int j = 0; j < i; j++) {        // a folder already scanned for an earlier recent project
+            char other[512];
+            dir_of(paths[j], other, sizeof other);
+            if (!strcmp(other, dir)) seen = 1;
+        }
+        DIR *d = seen ? NULL : opendir(dir);
+        for (struct dirent *de; d && (de = readdir(d));) {
+            char full[1100];
+            if (snprintf(full, sizeof full, "%s/%s", dir, de->d_name) < (int)sizeof full) newest_candidate(full, best_path, sizeof best_path, &best);
+        }
+        if (d) closedir(d);
+    }
+    const char *pick = best_path[0] ? best_path : first;
+    if (!pick[0] || strlen(pick) >= n) return -1;
+    memcpy(out, pick, strlen(pick) + 1);
+    return 0;
 }
 
 // The JSON document after the header lines, NUL-terminated, malloc'd. NULL with *err set otherwise.
